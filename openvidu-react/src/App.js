@@ -6,7 +6,7 @@ import "./App.css";
 import UserVideoComponent from "./UserVideoComponent";
 
 const APPLICATION_SERVER_URL =
-  process.env.NODE_ENV === "production" ? "" : "http://localhost:8080/chat/";
+  process.env.NODE_ENV === "production" ? "" : "http://localhost:8080/chat";
 
 class App extends Component {
   constructor(props) {
@@ -20,6 +20,8 @@ class App extends Component {
       mainStreamManager: undefined, // Main video of the page. Will be the 'publisher' or one of the 'subscribers'
       publisher: undefined,
       subscribers: [],
+      forceRecordingId: undefined,
+      isSecond: false,
     };
 
     this.joinSession = this.joinSession.bind(this);
@@ -98,6 +100,10 @@ class App extends Component {
           var subscribers = this.state.subscribers;
           subscribers.push(subscriber);
 
+          if(this.state.isSecond){
+            this.startRecording();
+          }
+
           // Update the state with the new subscribers
           this.setState({
             subscribers: subscribers,
@@ -108,12 +114,15 @@ class App extends Component {
         mySession.on("streamDestroyed", (event) => {
           // Remove the stream from 'subscribers' array
           this.deleteSubscriber(event.stream.streamManager);
+          console.log(this.state)
+          this.stopRecording();
         });
 
         // On every asynchronous exception...
         mySession.on("exception", (exception) => {
           console.warn(exception);
         });
+
 
         // --- 4) Connect to the session with a valid user token ---
 
@@ -164,11 +173,7 @@ class App extends Component {
               });
             })
             .catch((error) => {
-              console.log(
-                "There was an error connecting to the session:",
-                error.code,
-                error.message
-              );
+              console.log(error);
             });
         });
       }
@@ -356,32 +361,108 @@ class App extends Component {
    * Visit https://docs.openvidu.io/en/stable/application-server to learn
    * more about the integration of OpenVidu in your application server.
    */
+  // async getToken() {
+  //   const sessionId = await this.createSession(this.state.mySessionId);
+  //   return await this.createToken(sessionId);
+  // }
+
+  // async getToken() {
+  //   var sessionName = this.state.mySessionId;
+  //   await axios.post(
+  //     APPLICATION_SERVER_URL + "/get-token",
+  //     {sessionName: sessionName},
+  //   ).then((res)=>{
+  //     var token = res[0];
+  //     console.warn('Request of TOKEN gone WELL (TOKEN:' + token + ')');
+  //     return token;
+  //   })
+  // }
+
   async getToken() {
     const sessionId = await this.createSession(this.state.mySessionId);
     return await this.createToken(sessionId);
-  }
+}
 
-  async createSession(sessionId) {
-    const response = await axios.post(
-      APPLICATION_SERVER_URL + "api/sessions",
-      { customSessionId: sessionId },
-      {
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-    return response.data; // The sessionId
-  }
+async createSession() {
+    const response = await axios.post(APPLICATION_SERVER_URL + '/api/sessions', { customSessionId: this.state.mySessionId }, {
+        headers: { 'Content-Type': 'application/json', },
+    });
+    this.setState({isSecond: response.data.isSecond});
+    return response.data.sessionId; // The sessionId
+}
 
-  async createToken(sessionId) {
-    const response = await axios.post(
-      APPLICATION_SERVER_URL + "api/sessions/" + sessionId + "/connections",
-      {},
-      {
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-
+async createToken(sessionId) {
+    const response = await axios.post(APPLICATION_SERVER_URL + '/api/sessions/' + sessionId + '/connections', {}, {
+        headers: { 'Content-Type': 'application/json', },
+    });
     return response.data; // The token
+}
+
+  async removeUser() {
+    await axios.post(
+      APPLICATION_SERVER_URL + "/remove-user",
+      // session에 토큰이 있나 확인 필요
+      {sessionName: this.state.mySessionId, token: this.state.session.token},
+      // 'User couldn\'t be removed from session',
+    ).then((res=>{
+      console.warn("You have been removed from session " + this.state.mySessionId);
+    }))
+  }
+
+
+  // async closeSession() {
+  //   await axios.post(
+  //     APPLICATION_SERVER_URL + "/recording-node/api/close-session",
+  //     {sessionName: this.state.mySessionId},
+  //     'Session couldn\'t be closed',
+  //   ).then((res)=>{
+  //     console.warn("Session " + this.state.mySessionId + " has been closed");
+  //   })
+  // }
+
+  // leaveSession() {
+  //   // --- 9) Leave the session by calling 'disconnect' method over the Session object ---
+  //   this.state.session.disconnect();
+  // }
+
+  // Gracefully leave session
+  // window.onbeforeunload = function () { // Gracefully leave session
+  //   if (session) {
+  //     removeUser();
+  //     leaveSession();
+  //   }
+  // }
+
+
+  /**
+   * Recording APIs
+   */
+  async startRecording() {
+    var outputMode = "COMPOSED";
+    var hasAudio = true;
+    var hasVideo = false;
+    await axios.post(APPLICATION_SERVER_URL+ "/recording/start", 
+    {
+      session: this.state.mySessionId,
+      outputMode: outputMode, 
+      hasAudio: hasAudio,
+      hasVideo: hasVideo,
+    }).then((res=>{
+      console.log(res);
+      this.setState({forceRecordingId: res.data});
+    }))
+  }
+
+  async stopRecording() {
+    console.log("stop recording")
+    await axios.post(
+      APPLICATION_SERVER_URL+ "/recording/stop",
+      {
+        recording: this.state.forceRecordingId,
+      }
+    ).then((res)=>{
+      console.log(res);
+    })
   }
 }
 
